@@ -1,4 +1,3 @@
-from email import message
 import json
 import boto3
 import base64
