@@ -6,7 +6,7 @@ import logging
 
 logger = logging.getLogger()
 #TODO Logging Level to be picked from the environment variable
-logger.setLevel(logging.INFO)
+logger.setLevel(logging.DEBUG)
 message = "Something went wrong !!!"
 
 #Appranix Resource Types that are supported in this script
