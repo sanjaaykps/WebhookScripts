@@ -8,7 +8,7 @@ from botocore.exceptions import ClientError
 import route53_utils
 
 bucket_name = 'sample-bucket-for-backup'
-region = 'us-east-1'
+region = 'us-east-2'
 s3 = boto3.client('s3')
 route53 = boto3.client('route53')
 
@@ -101,4 +101,4 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    print(main())
