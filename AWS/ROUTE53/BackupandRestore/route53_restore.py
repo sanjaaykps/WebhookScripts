@@ -6,7 +6,7 @@ from datetime import datetime
 from botocore.exceptions import ClientError
 import route53_utils
 
-bucket_name = "sample-bucket-for-backup-march"
+bucket_name = "sample-bucket-for-backup"
 s3 = boto3.client('s3')
 route53 = boto3.client('route53')
 
@@ -92,4 +92,5 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    print(main())
+    
