@@ -80,14 +80,16 @@ def find_and_replace_all_records(findsource, replacetarget):
                 for recordtype in record_type_list:
                     if recordset['Type'] == recordtype:
                         logger.debug(f"Found a {recordtype} Record set")
-                        for resourcerecord in recordset['ResourceRecords']:
-                            if resourcerecord['Value'] == findsource:
-                                logger.info(f"Updating the record for {recordset}")
-                                updateRecordSetwithNewValue(zone['Id'], recordset['Name'], recordtype, replacetarget)
+                        if 'ResourceRecords' in recordset:
+                            for resourcerecord in recordset['ResourceRecords']:
+                                if resourcerecord['Value'] == findsource:
+                                    logger.info(f"Updating the record for {recordset}")
+                                    updateRecordSetwithNewValue(zone['Id'], recordset['Name'], recordtype, replacetarget)
     else:
         message = "Got an upexpcted response when trying to list hostedzone \
             repsonse" + str(list_all_hostedzone_response['ResponseMetadata']['HTTPStatusCode'])
         raise DnsUpdateException(message)                           
+                     
 
 
 def update_records(list_of_dict_of_source_and_target_records):
