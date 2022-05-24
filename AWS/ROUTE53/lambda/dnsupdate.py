@@ -113,9 +113,12 @@ def add_source_target_to_process_dict(data_dict, value_type):
 
 def lambda_handler(event, context):
     try:
-        data = base64.b64decode(event["body-json"]).decode('utf-8').replace('null', '"user"')
-        logger.info(data)
-        data_dictionary = eval(data)
+        logger.info(str(event))
+        # data = base64.b64decode(event["body-json"]).decode('utf-8').replace('null', '"user"')
+        # logger.info(data)
+        # data = json.dumps(event)
+        # data_dictionary = eval(data)
+        data_dictionary = event
         if data_dictionary['recoveryStatus'] == "RECOVERY_COMPLETED":
             url = data_dictionary["resourceMapping"]["sourceRecoveryMappingPath"]
             response = urlopen(url)
