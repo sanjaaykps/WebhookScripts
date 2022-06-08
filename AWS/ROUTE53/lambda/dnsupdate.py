@@ -10,7 +10,7 @@ logger.setLevel(logging.DEBUG)
 message = "Something went wrong !!!"
 
 #Appranix Resource Types that are supported in this script
-resouce_list = ["COMPUTE", "APPLICATION_LOAD_BALANCER", "CLASSIC_LOAD_BALANCER"]  #[COMPUTE, APPLICATION_LOADBALANCER, CLASSIC_LOADBALANCER] 
+resouce_list = ["COMPUTE", "APPLICATION_LOAD_BALANCER", "CLASSIC_LOAD_BALANCER", "RDS_INSTANCE"]  #[COMPUTE, APPLICATION_LOADBALANCER, CLASSIC_LOADBALANCER]
 #Appranix Resource Property that are supported in this script to be replaced with that of equivalend recovered resource
 resource_properties_list = ["publicIpAddress", "privateIpAddress", "privateDnsName", "publicDnsName", "dnsName"]
 #Record type that are supported in Route53, currently testing only A record and CName
@@ -52,7 +52,7 @@ def updateRecordSetwithNewValue(hosted_id, record_name, record_type, new_value):
         }
     )
     logger.info(response)
-    
+
 
 #Find and replace all the records where source matches
 def find_and_replace_all_records(findsource, replacetarget):
@@ -62,20 +62,22 @@ def find_and_replace_all_records(findsource, replacetarget):
     except Exception as e:
         logger.error(f"Failed to get the list of all hosted zones {e}")
         raise e
-        
+
     if list_all_hostedzone_response['ResponseMetadata']['HTTPStatusCode'] == 200:
         logger.debug("Making sure the list_hosted_zone call returned successfully")
         hosted_zones = list_all_hostedzone_response['HostedZones']
         if len(hosted_zones) == 0:
             message = "There are no Hosted Zones available"
-            raise DnsUpdateException(message)                           
+            raise DnsUpdateException(message)
+
         for zone in hosted_zones:
             logger.info(f"Hosted Zone = {zone}")
             #List all the record set in the Hostedzone
             resource_record_sets = client.list_resource_record_sets(HostedZoneId=zone['Id'])
             if len(resource_record_sets) == 0:
-                message = "There are no resource record sets found"
-                raise DnsUpdateException(message)  
+                logger.info("There are no resource record sets found")
+                continue
+
             for recordset in resource_record_sets['ResourceRecordSets']:
                 for recordtype in record_type_list:
                     if recordset['Type'] == recordtype:
@@ -88,8 +90,7 @@ def find_and_replace_all_records(findsource, replacetarget):
     else:
         message = "Got an upexpcted response when trying to list hostedzone \
             repsonse" + str(list_all_hostedzone_response['ResponseMetadata']['HTTPStatusCode'])
-        raise DnsUpdateException(message)                           
-                     
+        raise DnsUpdateException(message)
 
 
 def update_records(list_of_dict_of_source_and_target_records):
@@ -109,15 +110,10 @@ def add_source_target_to_process_dict(data_dict, value_type):
             list_of_dict_to_process.append(temp_dict)
             logger.info(list_of_dict_to_process)
 
-    
 
 def lambda_handler(event, context):
     try:
         logger.info(str(event))
-        # data = base64.b64decode(event["body-json"]).decode('utf-8').replace('null', '"user"')
-        # logger.info(data)
-        # data = json.dumps(event)
-        # data_dictionary = eval(data)
         data_dictionary = event
         if data_dictionary['recoveryStatus'] == "RECOVERY_COMPLETED":
             url = data_dictionary["resourceMapping"]["sourceRecoveryMappingPath"]
@@ -129,13 +125,14 @@ def lambda_handler(event, context):
                 for resource_type in resouce_list:
                     if resource_type in source_recovery_map.keys():
                         logger.info(f"Resource Type {resource_type}")
-                        dat_values = list(source_recovery_map.values())
-                        data_dict = dat_values[0][0]
-                        logger.info(f"DATA VALUES {data_dict}")
-                        for resource_property in resource_properties_list:
-                            logger.debug(f"Fill all {resource_property} in the process dict")
-                            add_source_target_to_process_dict(data_dict, resource_property)
-                        
+                        all_resource_details = list(source_recovery_map.values())
+                        for each_resoucetypes in all_resource_details:
+                            for each_resource in each_resoucetypes:
+                                logger.info(f"Each Resources {each_resource}")
+                                for resource_property in resource_properties_list:
+                                    logger.debug(f"Fill all {resource_property} in the process dict")
+                                    add_source_target_to_process_dict(each_resource, resource_property)
+
             if len(list_of_dict_to_process) != 0:
                 logger.debug("Processing the data to update records based on source and destination values")
                 update_records(list_of_dict_to_process)
