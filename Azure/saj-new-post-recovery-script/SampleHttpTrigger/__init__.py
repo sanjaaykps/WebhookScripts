@@ -36,7 +36,7 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
                         subscription_id = subscriptionstringfind[2]
                         rg_name = subscriptionstringfind[4]
                         compute_vmss_client = ComputeManagementClient(token_credential, subscription_id)
-                        time.sleep(300)
+                        time.sleep(60)
                         list_of_scaleset = compute_vmss_client.virtual_machine_scale_sets.list(rg_name)
                         logging.info(f"compute vms client = {compute_vmss_client}")
                         logging.info(f"subscription_id = {subscription_id}")
@@ -57,7 +57,7 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
                                     each_scaleset.name, each_scaleset)                                
                                 logging.info(poller.status())
                         logging.info("===========================================================")
-                        
+
         return func.HttpResponse(
              "This HTTP triggered function executed successfully.",
              status_code=200
