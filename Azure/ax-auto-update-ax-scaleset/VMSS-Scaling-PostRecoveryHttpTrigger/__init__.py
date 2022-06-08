@@ -17,7 +17,7 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
     # Acquire a credential object
     token_credential = DefaultAzureCredential()
     logging.info(token_credential)
-    
+
     try:
         resource_mapping = req.get_json().get('resourceMapping')
         logging.debug(f"RESOURCE MAPPING = f{resource_mapping}")
@@ -29,7 +29,7 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
         logging.info(f"recovered_metadata_json = {recovered_metadata_json}")
 
         for metadata in recovered_metadata_json:
-            for k, v in metadata.items(): 
+            for k, v in metadata.items():
                 if k == 'recoveredScalesetInitalCapacityMap':
                     for scaleset_id, scaleset_capacity in v.items():
                         logging.info("---------------------------------------------")
@@ -37,23 +37,21 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
                         subscription_id = subscriptionstringfind[2]
                         rg_name = subscriptionstringfind[4]
                         scaleset_name = subscriptionstringfind[-1]
-                        logging.info(f"scaleset_id = {scaleset_id}") 
-                        logging.info(f"scaleset_name = {scaleset_name}") 
-                        logging.info(f"resource group = {rg_name}") 
-                        logging.info(f"Instance Capacity = {scaleset_capacity}")                                                                    
+                        logging.info(f"scaleset_id = {scaleset_id}")
+                        logging.info(f"scaleset_name = {scaleset_name}")
+                        logging.info(f"resource group = {rg_name}")
+                        logging.info(f"Instance Capacity = {scaleset_capacity}")
 
-                        compute_vmss_client = ComputeManagementClient(token_credential, subscription_id)  
+                        compute_vmss_client = ComputeManagementClient(token_credential, subscription_id)
                         logging.info(f"VMSS Client = {compute_vmss_client}")
 
-                        
                         scalesetdetails = compute_vmss_client.virtual_machine_scale_sets.get(rg_name, scaleset_name)
                         scalesetdetails.sku = Sku(name =scalesetdetails.sku.name, capacity = scaleset_capacity)
                         poller = compute_vmss_client.virtual_machine_scale_sets.begin_create_or_update(rg_name,\
-                            scalesetdetails.name, scalesetdetails)                                
+                            scalesetdetails.name, scalesetdetails)
                         logging.info(poller.status())
-                        logging.info("===========================================================")                  
+                        logging.info("===========================================================")
 
-                        
         return func.HttpResponse(
              "This HTTP triggered function executed successfully.",
              status_code=200
