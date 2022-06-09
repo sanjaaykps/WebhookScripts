@@ -13,26 +13,23 @@ from azure.mgmt.compute.models import Sku
 def main(req: func.HttpRequest) -> func.HttpResponse:
     logging.info('Python HTTP trigger function processed a request.')
     logging.debug(req.get_json())
-    logging.debug("______________________________________________________")
     # Acquire a credential object
     token_credential = DefaultAzureCredential()
-    logging.info(token_credential)
 
     try:
         resource_mapping = req.get_json().get('resourceMapping')
         logging.debug(f"RESOURCE MAPPING = f{resource_mapping}")
         recovered_metadata_path_url = resource_mapping['recoveredMetadataPath']
-        logging.debug(f"recovered_metadata_path_url = f{recovered_metadata_path_url}")
+        logging.debug(f"URL to reteieve metadata = f{recovered_metadata_path_url}")
         recovered_metadata = requests.get(url = recovered_metadata_path_url)
-        logging.debug(f"recovered_metadata = {recovered_metadata}")
+        logging.debug(f"recovered metadata = {recovered_metadata}")
         recovered_metadata_json = recovered_metadata.json()
-        logging.info(f"recovered_metadata_json = {recovered_metadata_json}")
+        logging.info(f"recovered metadata json = {recovered_metadata_json}")
 
         for metadata in recovered_metadata_json:
             for k, v in metadata.items():
                 if k == 'recoveredScalesetInitalCapacityMap':
                     for scaleset_id, scaleset_capacity in v.items():
-                        logging.info("---------------------------------------------")
                         subscriptionstringfind = scaleset_id.split("/")
                         subscription_id = subscriptionstringfind[2]
                         rg_name = subscriptionstringfind[4]
@@ -50,8 +47,6 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
                         poller = compute_vmss_client.virtual_machine_scale_sets.begin_create_or_update(rg_name,\
                             scalesetdetails.name, scalesetdetails)
                         logging.info(poller.status())
-                        logging.info("===========================================================")
-
         return func.HttpResponse(
              "This HTTP triggered function executed successfully.",
              status_code=200
