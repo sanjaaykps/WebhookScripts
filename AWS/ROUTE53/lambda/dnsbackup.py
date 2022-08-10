@@ -1,9 +1,6 @@
-from multiprocessing import context
-import os
 import json
 import time
 from datetime import datetime
-from urllib import response
 import boto3
 from botocore.exceptions import ClientError
 import logging
@@ -134,9 +131,3 @@ def lambda_handler(event, context):
     return {
         "message" : message
     }
-
-
-# if __name__ == '__main__':
-#     event =""
-#     context = ""
-#     logger.info(lambda_handler(event, context))

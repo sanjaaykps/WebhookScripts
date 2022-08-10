@@ -1,6 +1,5 @@
 import json
 import boto3
-import base64
 from urllib.request import urlopen
 import logging
 
