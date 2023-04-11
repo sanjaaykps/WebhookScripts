@@ -12,12 +12,10 @@ import azure.functions as func
 # This script will extract the payload from appranix recovery webhook and promotes the Postgres single server replica as master
 
 credential = DefaultAzureCredential()
-rg_template = {}
 src_info = {}
 resource_mapping = {}
-src_rg_name = ''
 recovery_region = ''
-recovery_rg = ''
+subscription_id = ''
 recovery_prefix = ''
 
 
@@ -26,7 +24,6 @@ def get_resource_group_info(body, resource_mapper):
     destination_info = {}
     resource_id = ''
     src_info = {}
-    # TODO improve logic here.
     for mapping in resource_mapper:
         for key in mapping.keys():
             if key == 'VIRTUAL_MACHINE':
@@ -36,18 +33,15 @@ def get_resource_group_info(body, resource_mapper):
                         destination_info[vm[vm_key]['source']['groupIdentifier']] = vm[vm_key]['destination']
                         src_info[vm[vm_key]['source']['groupIdentifier']] = vm[vm_key]['source']['region']
     # Source values
-    print('Fetching source region details......')
-    # TODO validate if value exist.
+    logging.info('Fetching source region details......')
     if resource_id is not None:
         subscription_id = resource_id[2]
     else:
         logging.error("Subscription ID not found..")
-    print(src_info)
+    logging.info(src_info)
 
     # Destination values
     recovery_prefix = body['recoveryName'] + '-'
-    print('Fetching destination region details......')
-
     return recovery_prefix, destination_info, src_info, subscription_id
 
 
@@ -61,21 +55,29 @@ def get_source_and_recovery_resource_mapping(body):
 
 
 def get_master_postgres_single_server(resource_group, resource_client):
-    global server_name, postgres_servers
+    global server_name, postgres_servers, master_servers
     # Get the list of resources in the resource group
     resources = resource_client.resources.list_by_resource_group(resource_group)
     # Filter resources to get only PostgresSQL single servers
     postgres_servers = [
         r for r in resources if r.type == 'Microsoft.DBforPostgreSQL/servers'
     ]
-
-    # Print the names of the master servers
+    master_servers = []
     for s in postgres_servers:
-        if s.name == server_name:
-            print("Match found for " + s.name)
-            return s.name
-        return None
+        logging.info(s.name)
+        if is_master(resource_group, s.name):
+            master_servers.append(s.name)
+    return master_servers
 
+
+def is_master(resource_group, server_name):
+    server = postgresql_client.servers.get(resource_group, server_name)
+    # Check if the server is already a master
+    if server.replication_role == 'Master':
+        logging.info('Server ' + server_name + ' is a master\n')
+        return True
+    return False
+        
 
 def find_recovery_region_replica(replicas, recovery_region):
     for replica in replicas:
@@ -83,11 +85,10 @@ def find_recovery_region_replica(replicas, recovery_region):
                                                                api_version='2017-12-01')  # api_version='2017-12-01'
         replica_region = replica_resource.location
         if replica_region == recovery_region:
-            print(f"Replica name: {replica.name}, Region: {replica_region}")
+            logging.info(f"Replica name: {replica.name}, Region: {replica_region}")
             return replica.name
         else:
-            print("No replica servers running in the recovery region")
-
+            return None
 
 def get_replicas(resource_group, server_name, recovery_region):
     global replicas, replica_to_promote
@@ -102,9 +103,13 @@ def get_replicas(resource_group, server_name, recovery_region):
     # Check if there are any replicas
     if not replicas:
         logging.info('No replicas found for ' + str(server_name))
-        exit()
+        return None
+        
     replica_to_promote = find_recovery_region_replica(replicas, recovery_region)
-    return replica_to_promote
+    if replica_to_promote is not None:
+        return replica_to_promote
+    else:
+        return None
 
 
 def promote_replica_to_master(replica_to_promote, resource_group, client):
@@ -119,22 +124,20 @@ def promote_replica_to_master(replica_to_promote, resource_group, client):
         poller = client.servers.begin_update(resource_group_name=resource_group, server_name=replica_to_promote,
                                              parameters=server_update_params)  # On average of 5m
         # wait for the operation to complete
-        result = poller.result()  # On average of 5m
-        logging.info("Replica " + replica_to_promote + " has been promoted as Master...")
+        # result = poller.result()  # On average of 5m
+        # logging.info("Replica " + replica_to_promote + " has been promoted to Master...")
+        status = poller.status()
+        logging.info("Master Promotion for the replica " + replica_to_promote + " is " + str(status))
 
 
 app = func.FunctionApp()
 
-
-@app.function_name(name="replica-promoter")
+@app.function_name(name="app-deployer")
 @app.route(route="promote", methods=['POST'])  # HTTP Trigger
 def main(req: func.HttpRequest) -> func.HttpResponse:
-    global src_info, resource_mapping, recovery_region, subscription_id, resource_client, client, postgresql_client
+    global src_info, resource_mapping, recovery_region, subscription_id, resource_client, client, postgresql_client, server_name
     try:
         credentials = DefaultAzureCredential()
-        client = PostgreSQLManagementClient(credentials, subscription_id)
-        resource_client = ResourceManagementClient(credentials, subscription_id)
-        postgresql_client = postgresql.PostgreSQLManagementClient(credentials, subscription_id)
         logging.info("Function app processed a request.....")
 
         if req and req.get_body():
@@ -146,21 +149,34 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
                 logging.error("Webhook payload body does not have resourceMapping key")
             recovery_prefix, destination_info, src_info, subscription_id = get_resource_group_info(body,
                                                                                                    resource_mapping)
-            logging.info("Resource group info")
-            logging.info(src_info)
+            
+            client = PostgreSQLManagementClient(credentials, subscription_id)
+            resource_client = ResourceManagementClient(credentials, subscription_id)
+            postgresql_client = postgresql.PostgreSQLManagementClient(credentials, subscription_id)
 
         for resource_group_name in src_info.keys():
-            logging.info(resource_group_name)
-            server_name = get_master_postgres_single_server(resource_group_name, resource_client)
-            if server_name is None:
-                logging.info("No master server found in " + resource_group_name)
-                continue
-            replica_to_promote = get_replicas(resource_group_name, server_name, recovery_region)
-            promote_replica_to_master(replica_to_promote, resource_group_name, client)
-            logging.info("Replica " + replica_to_promote + " has been promoted as Master...")
-        return func.HttpResponse(
-            status_code=200
-        )
+            logging.info("Fetching the master servers in the resource group " + resource_group_name)
+            recovery_region = destination_info[resource_group_name]['region']
+            logging.info("Recovery region : " + str(recovery_region))
+            master_servers = get_master_postgres_single_server(resource_group_name, resource_client)
+            
+            logging.info("Available master servers in the resource group : " )
+            logging.info(master_servers)
+            for server in master_servers:
+                logging.info("Fetching replicas of server " + server)
+                replica_to_promote = get_replicas(resource_group_name, server, recovery_region)
+                if replica_to_promote is not None:
+                    promote_replica_to_master(replica_to_promote, resource_group_name, client)
+                    return func.HttpResponse(
+                        "Master promotion for the replica " + replica_to_promote + " has been triggered.....",
+                        status_code=500
+                    )
+                else:
+                    logging.info("No replicas found in the resource group to promote..........")
+                    return func.HttpResponse(
+                        "No replicas found in the resource group to promote..........",
+                        status_code=500
+                    )
     except Exception as e:
 
         traceback.print_exc()
@@ -171,3 +187,4 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
             'Exception occurred while promoting replica: ' + str(e),
             status_code=500
         )
+
