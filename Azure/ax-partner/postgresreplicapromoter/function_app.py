@@ -169,7 +169,7 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
                     promote_replica_to_master(replica_to_promote, resource_group_name, client)
                     return func.HttpResponse(
                         "Master promotion for the replica " + replica_to_promote + " has been triggered.....",
-                        status_code=500
+                        status_code=200
                     )
                 else:
                     logging.info("No replicas found in the resource group to promote..........")
