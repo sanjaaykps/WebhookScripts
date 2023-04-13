@@ -128,6 +128,10 @@ def promote_replica_to_master(replica_to_promote, resource_group, client):
         # logging.info("Replica " + replica_to_promote + " has been promoted to Master...")
         status = poller.status()
         logging.info("Master Promotion for the replica " + replica_to_promote + " is " + str(status))
+        return func.HttpResponse(
+            "Master promotion for the replica " + replica_to_promote + " has been triggered.....",
+            status_code=200
+        )
 
 
 app = func.FunctionApp()
@@ -162,21 +166,25 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
             
             logging.info("Available master servers in the resource group : " )
             logging.info(master_servers)
-            for server in master_servers:
-                logging.info("Fetching replicas of server " + server)
-                replica_to_promote = get_replicas(resource_group_name, server, recovery_region)
-                if replica_to_promote is not None:
-                    promote_replica_to_master(replica_to_promote, resource_group_name, client)
-                    return func.HttpResponse(
-                        "Master promotion for the replica " + replica_to_promote + " has been triggered.....",
+            if master_servers is not None:
+                for server in master_servers:
+                    logging.info("Fetching replicas of server " + server)
+                    replica_to_promote = get_replicas(resource_group_name, server, recovery_region)
+                    if replica_to_promote is not None:
+                        promote_replica_to_master(replica_to_promote, resource_group_name, client)
+                    else:
+                        logging.info("No replicas found in the resource group to promote..........")
+                        return func.HttpResponse(
+                            "No replicas found in the resource group to promote..........",
+                            status_code=500
+                        )
+            else:
+                logging.info("No master servers found in the resource group " )
+                return func.HttpResponse(
+                        "No master servers found in the resource group.........",
                         status_code=200
                     )
-                else:
-                    logging.info("No replicas found in the resource group to promote..........")
-                    return func.HttpResponse(
-                        "No replicas found in the resource group to promote..........",
-                        status_code=500
-                    )
+        return func.HttpResponse(status_code=200)
     except Exception as e:
 
         traceback.print_exc()
