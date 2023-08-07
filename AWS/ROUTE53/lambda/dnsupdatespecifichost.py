@@ -2,25 +2,35 @@ import json
 import boto3
 from urllib.request import urlopen
 import logging
-
+import os
 logger = logging.getLogger()
 #TODO Logging Level to be picked from the environment variable
-logger.setLevel(logging.DEBUG)
+LOGLEVEL = os.getenv('LOGLEVEL').upper()
+logging.basicConfig(level=LOGLEVEL)
+
 message = "Something went wrong !!!"
 
-#Appranix Resource Types that are supported in this script
-resouce_list = ["COMPUTE", "APPLICATION_LOAD_BALANCER", "CLASSIC_LOAD_BALANCER", "RDS_INSTANCE"]  #[COMPUTE, APPLICATION_LOADBALANCER, CLASSIC_LOADBALANCER]
-#Appranix Resource Property that are supported in this script to be replaced with that of equivalend recovered resource
-resource_properties_list = ["publicIpAddress", "privateIpAddress", "privateDnsName", "publicDnsName", "dnsName"]
-#Record type that are supported in Route53, currently testing only A record and CName
-record_type_list = ["A", "AAAA", "CNAME", "MX", "TXT", "PTR", "SRV", "SPF", "NAPTR", "CAA", "NS", "DS"]
-#Empty dict that will be filled inside
+# Appranix Resource Types that are supported in this script
+# RESOURCE_LIST=COMPUTE,APPLICATION_LOAD_BALANCER,CLASSIC_LOAD_BALANCER,RDS_INSTANCE
+aws_resource_list = os.environ.get('RESOURCE_LIST')
+resouce_list = aws_resource_list.split(',')
+
+# Appranix Resource Property that are supported in this script to be replaced with that of equivalend recovered resource 
+# RESOURCE_PROPERTIES_LIST=publicIpAddress,privateIpAddress,privateDnsName,publicDnsName,dnsName,endpoint
+aws_resource_properties_list = os.environ.get('RESOURCE_PROPERTIES_LIST')
+resource_properties_list = aws_resource_properties_list.split(',')
+
+# Record type that are supported in Route53, currently testing only A record and CName 
+# RECORD_TYPE_LIST=A,AAAA,CNAME,MX,TXT,PTR,SRV,SPF,NAPTR,CAA,NS,DS
+aws_record_type_list = os.environ.get('RECORD_TYPE_LIST')
+record_type_list = aws_record_type_list.split(',')
+
 list_of_dict_to_process = []
 
-#TODO change this
-hosted_zones_to_update = ["HOSTED_ZONE_ID"]
-
-
+# TODO change this
+# HOSTED_ZONE_ID=zone_id_1,zone_id_2
+hosted_zones = os.environ.get('HOSTED_ZONE_ID')
+hosted_zones_to_update = hosted_zones.split(',')
 
 client = boto3.client('route53')
 
@@ -31,6 +41,48 @@ class DnsUpdateException(Exception):
         logger.error(message)
         super().__init__(self.message)
 
+
+def update_alias_records(hosted_id, record_name, record_type, new_value, targetZoneId):
+    response = client.change_resource_record_sets(
+        HostedZoneId=hosted_id,
+        ChangeBatch={
+            "Comment": "DNS Alias Updated Programatically",
+            "Changes": [
+                {
+                    "Action": "UPSERT",
+                    "ResourceRecordSet": {
+                        "Name": record_name,
+                        "Type": record_type,
+                        "AliasTarget":{
+                            'HostedZoneId': targetZoneId,
+                            'DNSName': "dualstack." + new_value + ".",
+                            'EvaluateTargetHealth': True
+                        },
+                    }
+                },
+            ]
+        }
+    )
+    logger.info("Updated ALIAS RECORDSET with NEW VALUES")
+
+def trimRecvDNSName(recoveredDNSName):
+    recoveredDNSName = recoveredDNSName.split('-')
+    recoveredDNSName = recoveredDNSName[:len(recoveredDNSName)-1]
+    recoveredDNSName = '-'.join(recoveredDNSName)
+    return recoveredDNSName
+
+
+def findRecoveredResourceAlias(recoveredDNSNameToCheckAlias):
+    recoveredDNSName = recoveredDNSNameToCheckAlias.split('.',4)[0]
+    recoveredDNSName = recoveredDNSName.split('-')
+    recoveredDNSName = recoveredDNSName[:len(recoveredDNSName)-1]
+    recoveredDNSName = '-'.join(recoveredDNSName)
+    
+    recoveryRegion = recoveredDNSNameToCheckAlias.split('.')[1]
+    elb_client = boto3.client('elbv2',region_name=recoveryRegion)
+    response = elb_client.describe_load_balancers(Names=[recoveredDNSName])
+    recvCanonicalId = response['LoadBalancers'][0]['CanonicalHostedZoneId']
+    return recvCanonicalId
 
 #Update with new records for the hosted_id mapping to the record_name
 def updateRecordSetwithNewValue(hosted_id, record_name, record_type, new_value):
@@ -68,7 +120,6 @@ def find_and_replace_all_records(findsource, replacetarget):
         if len(resource_record_sets) == 0:
             logger.info("There are no resource record sets found")
             continue
-
         for recordset in resource_record_sets['ResourceRecordSets']:
             for recordtype in record_type_list:
                 if recordset['Type'] == recordtype:
@@ -78,7 +129,11 @@ def find_and_replace_all_records(findsource, replacetarget):
                             if resourcerecord['Value'] == findsource:
                                 logger.info(f"Updating the record for {recordset}")
                                 updateRecordSetwithNewValue(zone, recordset['Name'], recordtype, replacetarget)
-
+                    if 'AliasTarget' in recordset:
+                        for resourcerecord in recordset['AliasTarget']:
+                            if recordset['AliasTarget']["DNSName"] == str("dualstack." + findsource + "."):
+                                recoveredZoneId = findRecoveredResourceAlias(replacetarget)
+                                update_alias_records(zone, recordset['Name'], recordtype, replacetarget,recoveredZoneId)
 
 
 def update_records(list_of_dict_of_source_and_target_records):
@@ -103,8 +158,11 @@ def lambda_handler(event, context):
     try:
         logger.info(str(event))
         data_dictionary = event
-        if data_dictionary['recoveryStatus'] == "RECOVERY_COMPLETED":
+        data_dictionary = json.loads(event['body'])
+        # logger.info(str(data_dictionary))
+        if data_dictionary["recoveryStatus"] == "RECOVERY_COMPLETED":
             url = data_dictionary["resourceMapping"]["sourceRecoveryMappingPath"]
+            logger.info(url)
             response = urlopen(url)
             source_recovery_resource_mapping_json = json.loads(response.read())
             logger.info(f"source_recovery_resource_mapping_json =  {source_recovery_resource_mapping_json}")
@@ -120,7 +178,7 @@ def lambda_handler(event, context):
                                 for resource_property in resource_properties_list:
                                     logger.debug(f"Fill all {resource_property} in the process dict")
                                     add_source_target_to_process_dict(each_resource, resource_property)
-
+            
             if len(list_of_dict_to_process) != 0:
                 logger.debug("Processing the data to update records based on source and destination values")
                 update_records(list_of_dict_to_process)
